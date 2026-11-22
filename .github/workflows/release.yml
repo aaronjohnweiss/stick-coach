@@ -68,7 +68,10 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           TAG="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" dist/* \
+          # Artifacts keep their bundle subfolders (appimage/, deb/); upload the files themselves.
+          mapfile -t FILES < <(find dist -type f)
+          printf 'Uploading:\n%s\n' "${FILES[@]}"
+          gh release create "$TAG" "${FILES[@]}" \
             --target "$GITHUB_SHA" \
             --title "Stick Coach ${VERSION} (build ${GITHUB_RUN_NUMBER})" \
             --generate-notes
