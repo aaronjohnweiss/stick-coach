@@ -1,7 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: events from the adapter thread and opening help links.",
-  "windows": ["main"],
-  "permissions": ["core:default", "opener:allow-open-url"]
+  "description": "Main window: adapter events, opening help links, checking for and installing updates.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "opener:allow-open-url",
+    "updater:default",
+    "process:default"
+  ]
 }

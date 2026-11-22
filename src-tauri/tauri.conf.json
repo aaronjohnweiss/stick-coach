@@ -3,7 +3,9 @@
   "productName": "Stick Coach",
   "version": "0.2.0",
   "identifier": "app.stickcoach",
-  "build": { "frontendDist": "../src" },
+  "build": {
+    "frontendDist": "../src"
+  },
   "app": {
     "withGlobalTauri": true,
     "windows": [
@@ -23,13 +25,41 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "appimage", "deb"],
+    "targets": [
+      "nsis",
+      "appimage",
+      "deb"
+    ],
     "category": "Utility",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
-    "resources": { "../build/linux/51-gcadapter.rules": "51-gcadapter.rules" },
-    "linux": {
-      "deb": { "postInstallScript": "../build/linux/after-install.sh" }
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../build/linux/51-gcadapter.rules": "51-gcadapter.rules"
     },
-    "windows": { "nsis": { "installMode": "both" } }
+    "linux": {
+      "deb": {
+        "postInstallScript": "../build/linux/after-install.sh"
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "both"
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYyQjEwQURDQkI1RDFGODgKUldTSUgxMjczQXF4WWlvM1E0U2F0NGMxZW9NMThseFk4TC9manpKaHVaYmdESnZDbjVoOXY2SFAK",
+      "endpoints": [
+        "https://github.com/aaronjohnweiss/stick-coach/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

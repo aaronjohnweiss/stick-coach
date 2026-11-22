@@ -44,6 +44,8 @@
     <div id="status" class="mut" style="margin-top:8px">Not connected. See the Help tab for adapter driver setup.</div>
   </div>
 
+  <div id="updateBar" class="note updatebar" hidden></div>
+
   <nav class="tabs" id="tabs">
     <button data-tab="live" class="active">Live &amp; Tests</button>
     <button data-tab="guide">Guided Setup</button>
@@ -151,6 +153,10 @@
 
   <!-- HELP -->
   <section id="page-help" class="page" hidden>
+    <div class="card" id="updateCard" hidden>
+      <h2>Updates</h2>
+      <div class="row"><span>Version <b id="appVersion">?</b></span><button id="btnUpdate">Check for updates</button><span id="updateMsg" class="mut small"></span></div>
+    </div>
     <div class="card">
       <h2>Windows: adapter driver</h2>
       <ol>

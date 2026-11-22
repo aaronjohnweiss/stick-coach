@@ -36,6 +36,22 @@ with the Windows installer, AppImage and deb attached. Notes:
 - Windows builds are unsigned, so SmartScreen will warn. Code signing needs a certificate and is not configured.
 - Pick a license before publishing; `package.json` is marked `private` for now.
 
+## Auto-update
+
+The desktop app checks GitHub for a newer release a few seconds after launch and offers "Install and restart"
+(Help tab has a manual "Check for updates"). Updates are signed; the app only installs ones signed with the key whose
+public half is in `src-tauri/tauri.conf.json`.
+
+- Every CI build is versioned `<major.minor from package.json>.<run number>`, so each push is newer than the last.
+  Bump the minor version in `package.json` for bigger releases.
+- Setup (once): add the repository secret `TAURI_SIGNING_PRIVATE_KEY` (the contents of the private key file) in
+  Settings > Secrets and variables > Actions. If the key has a password, also add `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+  Keep a backup of the key: without it, installed apps can never be updated again. Generate a new pair with
+  `npx tauri signer generate -w ~/.tauri/stick-coach.key` and paste the new public key into `tauri.conf.json`.
+- Local release builds need the key too: `TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/stick-coach.key)" npm run dist`.
+- On Linux only the AppImage can update itself; a `.deb` install shows a link to the releases page instead.
+- Versions before auto-update (0.2.0 builds) have to be reinstalled once by hand.
+
 ## Snapshots
 
 The **Snapshots** tab saves a record of a stick's setup: a name, description and 1-5 rating, the numeric settings you

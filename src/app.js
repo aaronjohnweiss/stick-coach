@@ -7,6 +7,7 @@ import { connectAdapter, connectPad, connectDemo } from './core/sources.js';
 import { BUNDLED, validateProfile } from './data/firmware/index.js';
 import { createSnapshot, validateSnapshot, settingsSheet, compactBlock, snapshotMetrics, snapshotResults, serializeStore, mergeImported, stars, BLOCK_OF } from './core/snapshots.js';
 import { makeSnapshotStore } from './core/snapshotstore.js';
+import { RELEASES_URL, updaterAvailable, checkForUpdate, installUpdate } from './core/updater.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
@@ -745,6 +746,39 @@ $('#fileSnapImport').addEventListener('change', async e => {
 });
 snapStore.load().then(r => { SNAP.list = r.snapshots; if (r.errors.length) SNAP.msg = r.errors.join(' '); renderSnapshots(); })
   .catch(e => { SNAP.msg = 'Could not load snapshots: ' + (e && e.message ? e.message : e); renderSnapshots(); });
+
+/* ================= updates ================= */
+const tauriApi = globalThis.__TAURI__;
+let updating = false;
+function showUpdateBar(update) {
+  const bar = $('#updateBar'); bar.textContent = ''; bar.hidden = false;
+  const msg = h('span', { text: `Version ${update.version} is available.` });
+  const install = h('button', { class: 'primary', text: 'Install and restart', onclick: async () => {
+    if (updating) return; updating = true; install.disabled = true;
+    try { await installUpdate(tauriApi, update, m => { msg.textContent = m; }); }
+    catch (e) {
+      updating = false; install.disabled = false;
+      msg.textContent = 'Could not install automatically (' + (e && e.message ? e.message : e) + '). ';
+      msg.append(h('a', { href: RELEASES_URL, target: '_blank', rel: 'noopener', text: 'Download the new version' }), '.');
+    }
+  } });
+  bar.append(msg, install, h('button', { text: 'Later', onclick: () => { bar.hidden = true; } }));
+}
+async function runUpdateCheck(manual) {
+  const out = $('#updateMsg');
+  if (manual) out.textContent = 'Checking...';
+  try {
+    const update = await checkForUpdate(tauriApi);
+    if (update) { showUpdateBar(update); if (manual) out.textContent = `Version ${update.version} is available.`; }
+    else if (manual) out.textContent = 'You are up to date.';
+  } catch (e) { if (manual) out.textContent = 'Could not check for updates: ' + (e && e.message ? e.message : e); }
+}
+if (updaterAvailable(tauriApi)) {
+  $('#updateCard').hidden = false;
+  $('#btnUpdate').addEventListener('click', () => runUpdateCheck(true));
+  if (tauriApi.app && tauriApi.app.getVersion) tauriApi.app.getVersion().then(v => { $('#appVersion').textContent = v; }).catch(() => { });
+  setTimeout(() => runUpdateCheck(false), 4000); // quiet check shortly after launch; offline or no release is not an error
+}
 
 /* ================= tabs / init ================= */
 function showPage(name) {

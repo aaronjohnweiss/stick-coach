@@ -42,6 +42,8 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(Adapter::default())
         .invoke_handler(tauri::generate_handler![adapter_start, adapter_stop, snapshots_load, snapshots_save])
         .setup(|app| {
