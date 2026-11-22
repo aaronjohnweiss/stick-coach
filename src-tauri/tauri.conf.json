@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Stick Coach",
+  "version": "0.2.0",
+  "identifier": "app.stickcoach",
+  "build": { "frontendDist": "../src" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Stick Coach",
+        "width": 1200,
+        "height": 900,
+        "minWidth": 720,
+        "minHeight": 600,
+        "backgroundColor": "#0f1115"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost https://api.anthropic.com"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "appimage", "deb"],
+    "category": "Utility",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
+    "resources": { "../build/linux/51-gcadapter.rules": "51-gcadapter.rules" },
+    "linux": {
+      "deb": { "postInstallScript": "../build/linux/after-install.sh" }
+    },
+    "windows": { "nsis": { "installMode": "both" } }
+  }
+}

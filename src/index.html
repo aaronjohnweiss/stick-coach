@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost https://api.anthropic.com; img-src 'self' data: blob:">
+<title>Stick Coach</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Stick Coach</h1>
+      <p class="sub">GameCube controller analysis and PhobGCC calibration walkthroughs. Everything runs on your machine.</p>
+    </div>
+    <div class="fw">
+      <label class="mut small" for="fwSel">Controller firmware</label>
+      <div class="row">
+        <select id="fwSel"></select>
+        <button id="btnImport" title="Import a firmware profile (JSON)">Import</button>
+        <button id="btnDetectFw" title="Pick or auto-detect your Phob firmware version">Detect</button>
+        <button id="btnExportFw" title="Export the selected profile as a template">Export</button>
+        <input type="file" id="fileImport" accept=".json,application/json" hidden>
+      </div>
+      <div id="fwBadge" class="small"></div>
+    </div>
+  </header>
+
+  <div class="card" id="bar">
+    <div class="row">
+      <button class="primary" id="btnAdapter">Connect GC adapter</button>
+      <button id="btnPad">Browser gamepad</button>
+      <button id="btnDemo">Demo (mouse)</button>
+      <button id="btnDisc" disabled>Disconnect</button>
+      <span class="mut small">Port</span>
+      <select id="port"><option value="0">1</option><option value="1">2</option><option value="2">3</option><option value="3">4</option></select>
+      <span id="portChips"></span>
+      <span class="mut small">Stick</span>
+      <select id="which"><option value="left">Control stick</option><option value="c">C-stick</option></select>
+      <label id="demoOpts" class="mut small" hidden><input type="checkbox" id="simSnap"> simulate snapback</label>
+    </div>
+    <div id="status" class="mut" style="margin-top:8px">Not connected. See the Help tab for adapter driver setup.</div>
+  </div>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="live" class="active">Live &amp; Tests</button>
+    <button data-tab="guide">Guided Setup</button>
+    <button data-tab="ref">Reference</button>
+    <button data-tab="hist">History</button>
+    <button data-tab="help">Help</button>
+  </nav>
+
+  <!-- LIVE -->
+  <section id="page-live" class="page">
+    <div class="grid">
+      <div class="card"><h2>Control stick</h2><canvas id="cvL" width="420" height="420"></canvas><div class="readout" id="roL"></div></div>
+      <div class="card"><h2>C-stick</h2><canvas id="cvC" width="420" height="420"></canvas><div class="readout" id="roC"></div></div>
+    </div>
+    <p class="mut small">Values are offsets from center (adapter byte minus 128). Rings: 23 (about the Melee deadzone edge), 64 (about the smash threshold), 80, 100. These are approximate guides.</p>
+
+    <div class="card">
+      <h2>Guided test</h2>
+      <div class="row">
+        <select id="testSel"></select>
+        <button class="primary" id="btnStart">Start</button>
+        <button class="danger" id="btnStop" disabled>Stop</button>
+        <span class="countdown" id="cd"></span>
+      </div>
+      <p class="mut" id="testHelp" style="margin:8px 0 0"></p>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Recording</h2>
+        <canvas id="cvR" width="420" height="420"></canvas>
+        <div class="row" style="margin-top:10px"><button id="btnJson" disabled>Export JSON</button><button id="btnCsv" disabled>Export CSV</button></div>
+      </div>
+      <div class="card"><h2>Findings</h2><div id="findings" class="mut">Run a test to see results.</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Ask the coach</h2>
+      <textarea id="problem" placeholder="Describe what's going wrong, e.g. &quot;accidental dashbacks when I release left&quot; or &quot;up-right diagonal feels off for ledgedash&quot;"></textarea>
+      <div class="row" style="margin-top:8px"><button class="primary" id="btnCoach">Get guidance</button></div>
+      <div id="advice"></div>
+      <details style="margin-top:12px"><summary>Optional: ask Claude (needs your own API key)</summary>
+        <p class="mut small">Sends only your problem text, the selected firmware's command list and the summary numbers (not raw samples) to the Anthropic API. The key is kept in memory only and is gone when you close the app.</p>
+        <div class="row">
+          <input type="password" id="apikey" placeholder="sk-ant-..." autocomplete="off" style="flex:2;min-width:200px">
+          <input type="text" id="model" value="claude-sonnet-5-5" style="flex:1;min-width:150px">
+          <button id="btnAI">Ask Claude</button>
+        </div>
+        <pre class="ai" id="aiOut" hidden></pre>
+      </details>
+    </div>
+  </section>
+
+  <!-- GUIDED SETUP -->
+  <section id="page-guide" class="page" hidden>
+    <div class="guidegrid">
+      <div>
+        <div class="card"><h2>Walkthroughs</h2><div id="procList"></div><div id="fwNotes" class="mut small" style="margin-top:10px"></div></div>
+        <div class="card">
+          <h2>Live sticks</h2>
+          <div class="minis">
+            <div><canvas id="cvGL" width="420" height="420"></canvas><div class="readout" id="roGL"></div></div>
+            <div><canvas id="cvGC" width="420" height="420"></canvas><div class="readout" id="roGC"></div></div>
+          </div>
+          <p class="mut small">Left: control stick. Right: C-stick. During calibration the stick that is <b>not</b> being calibrated shows the guide position.</p>
+        </div>
+      </div>
+      <div class="card" id="runner"><div class="mut">Pick a walkthrough to begin.</div></div>
+    </div>
+  </section>
+
+  <!-- REFERENCE -->
+  <section id="page-ref" class="page" hidden>
+    <div class="card">
+      <h2>Commands for the selected firmware</h2>
+      <input type="text" id="refSearch" placeholder="Filter (e.g. snapback, scaling, L + A)">
+      <div id="refTable"></div>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="page-hist" class="page" hidden>
+    <div class="card">
+      <h2>Test history</h2>
+      <p class="mut small">Results are saved on this computer. Each entry is compared with the previous run of the same test and stick, so you can see whether a change helped.</p>
+      <div class="row"><button id="btnClearHist">Clear history</button></div>
+      <div id="histList"></div>
+    </div>
+  </section>
+
+  <!-- HELP -->
+  <section id="page-help" class="page" hidden>
+    <div class="card">
+      <h2>Windows: adapter driver</h2>
+      <ol>
+        <li>Plug in the official Nintendo GameCube adapter (Wii U / Switch version, set to the <b>Wii U</b> position).</li>
+        <li>Download <a href="https://zadig.akeo.ie/" target="_blank" rel="noopener">Zadig</a>, choose <b>Options &rarr; List All Devices</b>, select <b>WUP-028</b>, pick <b>WinUSB</b> as the driver and click Replace/Install.</li>
+        <li>Click <b>Connect GC adapter</b> here and choose the adapter.</li>
+      </ol>
+      <p class="mut small">This is the same driver Dolphin uses for the adapter, so if Dolphin already works with it nothing else is needed. Only one program can use the adapter at a time: close Dolphin first.</p>
+    </div>
+    <div class="card">
+      <h2>Linux: permissions</h2>
+      <p>The .deb package installs a udev rule automatically. For the AppImage (or other installs) add the rule once:</p>
+      <pre class="ai">sudo cp 51-gcadapter.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules &amp;&amp; sudo udevadm trigger</pre>
+      <p class="mut small">The rule file is in the app's resources folder (and in the source repo under build/linux). Then unplug and replug the adapter. Close Dolphin or any other program using the adapter first.</p>
+    </div>
+    <div class="card">
+      <h2>Troubleshooting</h2>
+      <ul>
+        <li><b>"No device selected" / nothing in the list:</b> the adapter is not on the WinUSB driver (Windows) or lacks permissions (Linux), or the switch is not on the Wii U position.</li>
+        <li><b>Can't claim interface:</b> another program (Dolphin, a driver tool) has it. Close it and replug.</li>
+        <li><b>Ports show "–":</b> no controller detected on that port. Pick the right port; wireless controllers must be paired.</li>
+        <li><b>Sticks look dead on a Phob:</b> press B once after plugging in to wake the sticks (see the 0.31 guide). Mayflash adapters need both USB connectors plugged in.</li>
+        <li><b>Low sample rate warning:</b> only the adapter reports at about 125 Hz; browser-gamepad mode (about 60 Hz) is not suitable for snapback tests.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>About the firmware profiles</h2>
+      <p>The walkthroughs are driven by profile files, one per firmware version. <b>0.31</b> and <b>0.25 - 0.29</b> are transcribed from the official per-version guides (0.30 was never released; nothing below 0.25 is supported). Steps are marked <span class="chip warn">unverified</span> where the source did not say. You can import your own profile (Import button) to add or correct a version; use Export on an existing profile as a template.</p>
+      <p>Official sources: <a href="https://github.com/PhobGCC/PhobGCC-doc/blob/main/For_Users/Phob_Calibration_Guide_Latest.md" target="_blank" rel="noopener">Calibration guide (latest)</a> &middot; <a href="https://github.com/PhobGCC/PhobGCC-doc" target="_blank" rel="noopener">PhobGCC-doc</a></p>
+      <p class="mut small">Stick Coach is an independent tool and is not affiliated with the PhobGCC project. Always confirm button combos against the official guide for your firmware before changing settings.</p>
+    </div>
+  </section>
+</div>
+<div id="firstRun" class="modal" hidden></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
