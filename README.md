@@ -29,10 +29,10 @@ npm run dist:win     # Windows: NSIS installer  (run on Windows)
 npm run dist:linux   # Linux: AppImage + deb                   (run on Linux)
 ```
 
-`.github/workflows/release.yml` builds both on GitHub Actions when you push a tag like `v0.2.0`
-(artifacts are uploaded to the workflow run). Notes:
+`.github/workflows/release.yml` builds both on GitHub Actions on every push to `main` (pushes that only change docs, the license or `.gitignore` are skipped), publishes a GitHub release (keeping only the latest 3)
+with the Windows installer, AppImage and deb attached. Notes:
 
-- Commit `package-lock.json` and `src-tauri/Cargo.lock`, then switch the workflow to `npm ci`.
+- The workflow uses `npm ci` and `cargo --locked`, so keep `package-lock.json` and `src-tauri/Cargo.lock` committed and in sync.
 - Windows builds are unsigned, so SmartScreen will warn. Code signing needs a certificate and is not configured.
 - Pick a license before publishing; `package.json` is marked `private` for now.
 

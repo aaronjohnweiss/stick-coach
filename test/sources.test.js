@@ -35,6 +35,28 @@ test('connectAdapter uses the Tauri bridge when present', async () => {
   } finally { delete globalThis.__TAURI__; }
 });
 
+test('stick offsets are measured from each port\'s origin (127 on OEM/Mayflash adapters)', async () => {
+  const { makeFeeder } = await import('../src/core/sources.js');
+  const out = [];
+  const feed = makeFeeder({ onPorts() { }, onSample: s => out.push(s), getPort: () => 0 });
+  feed([port({ connected: true, lx: 127, ly: 127, cx: 127, cy: 127 }), port(), port(), port()]); // neutral: origin 127
+  feed([port({ connected: true, lx: 127, ly: 127, cx: 127, cy: 156 }), port(), port(), port()]); // version 29 on C-stick Y
+  assert.deepEqual([out[0].x, out[0].cy, out[1].cy, out[1].x], [0, 0, 29, 0]);
+  // origin 128 adapters are unchanged, and a stick already held at connect falls back to 128
+  out.length = 0;
+  const feed2 = makeFeeder({ onPorts() { }, onSample: s => out.push(s), getPort: () => 0 });
+  feed2([port({ connected: true, lx: 128, ly: 140, cx: 128, cy: 128 }), port(), port(), port()]);
+  feed2([port({ connected: true, lx: 128, ly: 140, cx: 128, cy: 157 }), port(), port(), port()]);
+  assert.deepEqual([out[0].y, out[1].cy], [12, 29]);
+  // reconnecting a port re-reads its origin
+  out.length = 0;
+  const feed3 = makeFeeder({ onPorts() { }, onSample: s => out.push(s), getPort: () => 0 });
+  feed3([port({ connected: true, lx: 128, ly: 128, cx: 128, cy: 128 }), port(), port(), port()]);
+  feed3([port(), port(), port(), port()]);
+  feed3([port({ connected: true, lx: 127, ly: 127, cx: 127, cy: 127 }), port(), port(), port()]);
+  assert.deepEqual([out[0].cx, out[1].cx], [0, 0]);
+});
+
 test('connectAdapter surfaces a Rust start error and cleans up', async () => {
   globalThis.__TAURI__ = {
     core: { invoke: async cmd => { if (cmd === 'adapter_start') throw 'adapter not found'; } },

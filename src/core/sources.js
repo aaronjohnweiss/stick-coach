@@ -17,13 +17,23 @@ export function parseAdapter(dv) {
   return out;
 }
 
+// Adapters report a neutral stick as 127 or 128 (GTS shows the origin as -1 or 0 and measures from it), so offsets
+// are taken from each port's origin: its first reading after the port connects, if that looks like a neutral stick.
+// Anything else (a stick already being held) falls back to 128.
+const originOf = raw => (raw === 127 || raw === 128 ? raw : 128);
+
 // Turns a 4-port packet into handler calls; shared by the Tauri and WebUSB paths.
 export function makeFeeder(h) {
   let tick = 0;
+  const origins = [null, null, null, null];
   return ports => {
     if ((tick++ % 60) === 0) h.onPorts(ports);
-    const p = ports[h.getPort()];
-    if (p && p.connected) h.onSample({ x: p.lx - 128, y: p.ly - 128, cx: p.cx - 128, cy: p.cy - 128, l: p.l, r: p.r, b1: p.b1, b2: p.b2 });
+    ports.forEach((q, i) => {
+      if (!q.connected) origins[i] = null;
+      else if (!origins[i]) origins[i] = { lx: originOf(q.lx), ly: originOf(q.ly), cx: originOf(q.cx), cy: originOf(q.cy) };
+    });
+    const i = h.getPort(), p = ports[i], o = origins[i];
+    if (p && p.connected) h.onSample({ x: p.lx - o.lx, y: p.ly - o.ly, cx: p.cx - o.cx, cy: p.cy - o.cy, l: p.l, r: p.r, b1: p.b1, b2: p.b2 });
   };
 }
 
