@@ -44,13 +44,14 @@ export function makeFeeder(h) {
     if (p && p.connected) h.onSample({ x: p.lx - o.lx, y: p.ly - o.ly, cx: p.cx - o.cx, cy: p.cy - o.cy, l: p.l, r: p.r, b1: p.b1, b2: p.b2 });
   };
   feed.rezero = () => { rezero = true; };
+  feed.origin = () => origins[h.getPort()] || null; // origin in use for the selected port, e.g. {lx:127,ly:127,cx:127,cy:127}
   return feed;
 }
 
 // Desktop app: the Rust side reads the adapter over USB and emits 'adapter-sample' events (array of 4 raw ports).
 async function connectAdapterTauri(h, tauri) {
   let feed = makeFeeder(h);
-  const src = { type: 'adapter', stopped: false, hasButtons: true, unlisten: [], retry: null, rezero: () => feed.rezero() };
+  const src = { type: 'adapter', stopped: false, hasButtons: true, unlisten: [], retry: null, rezero: () => feed.rezero(), origin: () => feed.origin() };
   const errText = e => (typeof e === 'string' ? e : e.message);
   // After an unplug, keep trying to restart the reader until the adapter comes back or the user disconnects.
   const reconnect = () => {
@@ -100,6 +101,7 @@ export async function connectAdapter(h) {
   src.stop = async () => { src.stopped = true; try { await dev.close(); } catch (e) { /* already closed */ } };
   const feed = makeFeeder(h);
   src.rezero = () => feed.rezero();
+  src.origin = () => feed.origin();
   (async () => {
     while (!src.stopped) {
       try {

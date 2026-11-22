@@ -24,7 +24,7 @@ export function analyzeRest(pts) {
   return { enough: true, n: use.length, meanX: mx, meanY: my, offset: off, stdX: sx, stdY: sy, maxR, status };
 }
 
-export function analyzeRotation(pts) {
+export function analyzeRotation(pts, naNotches = []) {
   const rs = pts.map(p => hyp(p.x, p.y));
   let maxR = 0;
   for (const r of rs) maxR = Math.max(maxR, r);
@@ -47,8 +47,16 @@ export function analyzeRotation(pts) {
     const a = angleOf(x, y);
     notches.push({ k, name: DIRS[k], x, y, r: hyp(x, y), angle: a, angErr: angDiff(a, k * 45) });
   }
-  const have = notches.filter(n => !n.missing);
-  const missing = notches.filter(n => n.missing).map(n => n.name);
+  return { enough: true, maxR, notches, ...summarizeNotches(notches, naNotches) };
+}
+
+// Summary stats over the measured notches. Notches in `naNotches` (indices 0-7, e.g. a shell with no diagonal
+// notch) are left out of every statistic and never reported as missing.
+export function summarizeNotches(notches, naNotches = []) {
+  const na = new Set(naNotches);
+  const used = notches.filter(n => !na.has(n.k));
+  const have = used.filter(n => !n.missing);
+  const missing = used.filter(n => n.missing).map(n => n.name);
   const card = have.filter(n => n.k % 2 === 0);
   const diag = have.filter(n => n.k % 2 === 1);
   const cr = card.map(n => n.r);
@@ -60,10 +68,7 @@ export function analyzeRotation(pts) {
   const sDiag = maxDiagErr > 6 ? 'bad' : maxDiagErr > 3 ? 'warn' : 'ok';
   const sOff = maxOff > 8 ? 'bad' : maxOff > 4 ? 'warn' : 'ok';
   const sMiss = missing.length ? 'warn' : 'ok';
-  return {
-    enough: true, maxR, notches, missing, asym, maxDiagErr, maxOff, sAsym, sDiag, sOff, sMiss,
-    status: worst([sAsym, sDiag, sOff, sMiss])
-  };
+  return { missing, asym, maxDiagErr, maxOff, sAsym, sDiag, sOff, sMiss, status: worst([sAsym, sDiag, sOff, sMiss]) };
 }
 
 export function analyzeReleases(pts) {

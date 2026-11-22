@@ -1,4 +1,5 @@
 mod adapter;
+mod store;
 
 use adapter::Adapter;
 use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
@@ -15,6 +16,20 @@ fn adapter_stop(adapter: State<Adapter>) {
     adapter.stop();
 }
 
+fn snapshots_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("snapshots.json"))
+}
+
+#[tauri::command]
+fn snapshots_load(app: AppHandle) -> Result<Option<String>, String> {
+    store::read_opt(&snapshots_path(&app)?)
+}
+
+#[tauri::command]
+fn snapshots_save(app: AppHandle, data: String) -> Result<(), String> {
+    store::write_atomic(&snapshots_path(&app)?, &data)
+}
+
 const GUIDE: &str = "https://github.com/PhobGCC/PhobGCC-doc/blob/main/For_Users/Phob_Calibration_Guide_Latest.md";
 const DOCS: &str = "https://github.com/PhobGCC/PhobGCC-doc";
 
@@ -28,7 +43,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .manage(Adapter::default())
-        .invoke_handler(tauri::generate_handler![adapter_start, adapter_stop])
+        .invoke_handler(tauri::generate_handler![adapter_start, adapter_stop, snapshots_load, snapshots_save])
         .setup(|app| {
             let guide = MenuItem::with_id(app, "guide", "PhobGCC calibration guide (latest)", true, None::<&str>)?;
             let docs = MenuItem::with_id(app, "docs", "PhobGCC documentation", true, None::<&str>)?;

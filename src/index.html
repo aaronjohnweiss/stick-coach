@@ -49,6 +49,7 @@
     <button data-tab="guide">Guided Setup</button>
     <button data-tab="ref">Reference</button>
     <button data-tab="hist">History</button>
+    <button data-tab="snap">Snapshots</button>
     <button data-tab="help">Help</button>
   </nav>
 
@@ -131,6 +132,20 @@
       <p class="mut small">Results are saved on this computer. Each entry is compared with the previous run of the same test and stick, so you can see whether a change helped.</p>
       <div class="row"><button id="btnClearHist">Clear history</button></div>
       <div id="histList"></div>
+    </div>
+  </section>
+
+  <!-- SNAPSHOTS -->
+  <section id="page-snap" class="page" hidden>
+    <div class="guidegrid">
+      <div class="card">
+        <h2>Snapshots</h2>
+        <p class="mut small">A snapshot records how a stick was tuned (settings and measurements) with a note and a rating, so you can come back to a setup you liked.</p>
+        <div class="row"><button class="primary" id="btnSnapNew">New snapshot</button><button id="btnSnapImport">Import</button><button id="btnSnapExport">Export all</button><input type="file" id="fileSnapImport" accept=".json,application/json" hidden></div>
+        <div id="snapStorage" class="mut small" style="margin:8px 0"></div>
+        <div id="snapList"></div>
+      </div>
+      <div class="card" id="snapDetail"><div class="mut">Select a snapshot, or create a new one.</div></div>
     </div>
   </section>
 

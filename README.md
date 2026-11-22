@@ -36,6 +36,14 @@ with the Windows installer, AppImage and deb attached. Notes:
 - Windows builds are unsigned, so SmartScreen will warn. Code signing needs a certificate and is not configured.
 - Pick a license before publishing; `package.json` is marked `private` for now.
 
+## Snapshots
+
+The **Snapshots** tab saves a record of a stick's setup: a name, description and 1-5 rating, the numeric settings you
+entered (prefilled with the firmware's defaults, since the controller cannot report them), and measurements from the
+rest, rotate, release and flick tests. Notches your shell does not have can be marked N/A and are then ignored in the
+statistics. Snapshots are stored in `snapshots.json` in the app data folder (a one-step `.bak` is kept) and can be
+exported and imported as JSON. Re-testing against a snapshot to detect drift is planned next.
+
 ## Adapter setup
 
 - **Windows:** the adapter must use the WinUSB driver (Zadig, device "WUP-028"). This is the same driver Dolphin uses.

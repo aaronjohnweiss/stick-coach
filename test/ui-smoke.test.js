@@ -39,8 +39,8 @@ const doc = {
   addEventListener(t, f) { (docListeners[t] = docListeners[t] || []).push(f); },
   querySelectorAll: sel => (sel === '#tabs button' ? tabs : sel === '.page' ? pages : [])
 };
-const tabs = ['live', 'guide', 'ref', 'hist', 'help'].map(n => { const b = new FakeEl('button'); b.dataset.tab = n; return b; });
-const pages = ['live', 'guide', 'ref', 'hist', 'help'].map(n => { const p = new FakeEl('section'); p.id = 'page-' + n; return p; });
+const tabs = ['live', 'guide', 'ref', 'hist', 'snap', 'help'].map(n => { const b = new FakeEl('button'); b.dataset.tab = n; return b; });
+const pages = ['live', 'guide', 'ref', 'hist', 'snap', 'help'].map(n => { const p = new FakeEl('section'); p.id = 'page-' + n; return p; });
 const mem = {};
 globalThis.document = doc;
 globalThis.localStorage = { getItem: k => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); } };
@@ -176,3 +176,44 @@ async function firstRunBody() {
   // restore the latest profile for later checks
   $('#fwSel').value = '0.31'; $('#fwSel').fire('change', { target: $('#fwSel') });
 }
+
+test('snapshots: create with rating and an N/A notch, persist, edit, delete', async () => {
+  try {
+    const detail = $('#snapDetail');
+    await $('#btnDemo').fire('click');
+    await sleep(60);
+    $('#btnSnapNew').click();
+    assert.match(detail.textContent, /New snapshot/);
+    assert.match(detail.textContent, /Scaling \(control stick\)/, 'settings are prefilled from the firmware profile');
+    const buttons = txt => detail.find(e => e.tag === 'button' && e.textContent === txt);
+    buttons('Record')[0].click(); // Rest test, 3 s
+    await sleep(3400);
+    assert.match(detail.textContent, /recorded/);
+    const name = detail.find(e => e.tag === 'input' && e.attrs.placeholder && e.attrs.placeholder.startsWith('e.g.'))[0];
+    name.value = 'Fresh calibration'; name.fire('input');
+    detail.find(e => e.className === 'starbtn')[3].click(); // 4 stars
+    const na = detail.find(e => e.tag === 'input' && e.attrs.type === 'checkbox');
+    assert.equal(na.length, 8);
+    na[1].checked = true; na[1].fire('change'); // no up-right notch
+    await buttons('Save snapshot')[0].fire('click');
+    await sleep(30);
+    const saved = JSON.parse(mem.snapshots).snapshots;
+    assert.equal(saved.length, 1);
+    assert.deepEqual([saved[0].name, saved[0].rating, saved[0].naNotches, saved[0].stick], ['Fresh calibration', 4, [1], 'left']);
+    assert.ok(saved[0].measurements.rest);
+    assert.ok(saved[0].settings.some(s => s.id === 'scaleL' && s.value === '100'));
+    assert.match($('#snapList').textContent, /Fresh calibration/);
+    assert.match(detail.textContent, /★★★★☆/);
+    // edit the rating, then delete with the two-step confirmation
+    buttons('Edit')[0].click();
+    detail.find(e => e.className === 'starbtn')[4].click(); // 5 stars
+    await buttons('Save changes')[0].fire('click');
+    await sleep(30);
+    assert.equal(JSON.parse(mem.snapshots).snapshots[0].rating, 5);
+    buttons('Delete')[0].click();
+    assert.equal(JSON.parse(mem.snapshots).snapshots.length, 1, 'first click only asks for confirmation');
+    buttons('Click again to delete')[0].click();
+    await sleep(30);
+    assert.equal(JSON.parse(mem.snapshots).snapshots.length, 0);
+  } finally { rafOn = false; await $('#btnDisc').fire('click'); await sleep(30); }
+});

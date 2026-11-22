@@ -1,10 +1,12 @@
-import { CFG, hyp, angleOf, rnd, runAnalyses, summarize, metricsOf, diffMetrics } from './core/analysis.js';
+import { CFG, DIRS, METRICS, hyp, angleOf, rnd, runAnalyses, summarize, metricsOf, diffMetrics } from './core/analysis.js';
 import { parseCombo, GuideTracker, VersionReader, matchFirmware } from './core/guide.js';
 import { decodeButtons, encodeButtons, comboHeld, keyAlts, ButtonTracker } from './core/buttons.js';
 import { localCoach } from './core/coach.js';
 import { Runner, stepAuto } from './core/walkthrough.js';
 import { connectAdapter, connectPad, connectDemo } from './core/sources.js';
 import { BUNDLED, validateProfile } from './data/firmware/index.js';
+import { createSnapshot, validateSnapshot, settingsSheet, compactBlock, snapshotMetrics, snapshotResults, serializeStore, mergeImported, stars, BLOCK_OF } from './core/snapshots.js';
+import { makeSnapshotStore } from './core/snapshotstore.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
@@ -584,6 +586,166 @@ function renderHistory() {
 }
 $('#btnClearHist').addEventListener('click', () => { store.set('history', []); renderHistory(); });
 
+/* ================= snapshots ================= */
+const snapStore = makeSnapshotStore({ tauri: globalThis.__TAURI__, local: (() => { try { return localStorage; } catch (e) { return null; } })() });
+const SNAP = { list: [], sel: null, draft: null, msg: '', busy: false, confirmDel: false };
+// Element.append does not expand arrays or skip nulls, so flatten and filter children first.
+const put = (box, ...kids) => box.append(...kids.flat().filter(k => k !== null && k !== undefined && k !== false));
+const fmtDate = ts => new Date(ts).toLocaleString();
+const stickName = s => (s === 'c' ? 'C-stick' : 'Control stick');
+const TEST_ORDER = ['rest', 'rotate', 'release', 'flick'];
+
+async function persistSnapshots() {
+  try { await snapStore.save(SNAP.list); return true; }
+  catch (e) { SNAP.msg = 'Could not save snapshots: ' + (e && e.message ? e.message : e); return false; }
+}
+function metricLine(snap) {
+  const m = snapshotMetrics(snap);
+  return METRICS.filter(x => x.key in m).map(x => `${x.label} ${m[x.key]}`).join(' · ') || 'no measurements';
+}
+function draftFrom(snap) {
+  return {
+    id: snap ? snap.id : null, isNew: !snap, createdAt: snap ? snap.createdAt : Date.now(),
+    name: snap ? snap.name : '', description: snap ? snap.description : '', rating: snap ? snap.rating : 0,
+    stick: snap ? snap.stick : 'left', fw: snap ? snap.fw : S.fw.id, origin: snap ? snap.origin : null,
+    naNotches: new Set(snap ? snap.naNotches : []),
+    settings: snap ? snap.settings.map(x => ({ ...x })) : settingsSheet(S.fw),
+    measurements: snap ? JSON.parse(JSON.stringify(snap.measurements)) : {}
+  };
+}
+function renderSnapshots() {
+  $('#snapStorage').textContent = snapStore.kind === 'file' ? 'Saved to a file in the app data folder.' : 'Saved in this browser (desktop app: a file in the app data folder).';
+  const list = $('#snapList'); list.textContent = '';
+  if (!SNAP.list.length) list.append(h('p', { class: 'mut', text: 'No snapshots yet.' }));
+  SNAP.list.slice().sort((a, b) => b.createdAt - a.createdAt).forEach(sn => {
+    list.append(h('button', { class: 'snap' + (SNAP.sel === sn.id && !SNAP.draft ? ' active' : ''), onclick: () => { if (SNAP.busy) return; SNAP.sel = sn.id; SNAP.draft = null; SNAP.confirmDel = false; renderSnapshots(); } },
+      h('b', { text: sn.name }), ' ', h('span', { class: 'stars', text: stars(sn.rating) }),
+      h('span', { class: 's', text: `${fmtDate(sn.createdAt)} · ${stickName(sn.stick)} · fw ${sn.fw || '?'}` }),
+      sn.description ? h('span', { class: 's', text: sn.description.length > 90 ? sn.description.slice(0, 90) + '…' : sn.description }) : null));
+  });
+  const box = $('#snapDetail'); box.textContent = '';
+  if (SNAP.msg) box.append(h('div', { class: 'note', text: SNAP.msg }));
+  if (SNAP.draft) renderSnapEditor(box);
+  else if (SNAP.sel && SNAP.list.find(x => x.id === SNAP.sel)) renderSnapView(box, SNAP.list.find(x => x.id === SNAP.sel));
+  else box.append(h('div', { class: 'mut', text: 'Select a snapshot, or create a new one.' }));
+}
+function notchTable(snap) {
+  const rot = snap.measurements.rotation; if (!rot) return null;
+  const na = new Set(snap.naNotches);
+  return h('table', { class: 'notches' },
+    h('tr', {}, h('th', { text: 'Notch' }), h('th', { text: 'Angle error' }), h('th', { text: 'Radius' })),
+    rot.notches.map(n => h('tr', { class: na.has(n.k) ? 'na' : '' }, h('td', { text: n.name + (na.has(n.k) ? ' (N/A)' : '') }),
+      h('td', { text: n.missing ? 'no data' : rnd(n.angErr, 1) + '°' }), h('td', { text: n.missing ? '' : rnd(n.r, 1) }))));
+}
+function renderSnapView(box, sn) {
+  const res = snapshotResults(sn);
+  put(box,
+    h('h2', {}, sn.name, ' ', h('span', { class: 'stars', text: stars(sn.rating) })),
+    h('div', { class: 'mut small', text: `${fmtDate(sn.createdAt)} · ${stickName(sn.stick)} · firmware ${sn.fw || '?'}` }),
+    sn.description ? h('p', { text: sn.description }) : null,
+    h('div', { class: 'row', style: 'margin:8px 0' },
+      h('button', { onclick: () => { SNAP.draft = draftFrom(sn); SNAP.msg = ''; renderSnapshots(); } }, 'Edit'),
+      h('button', { onclick: () => download(`snapshot-${sn.name.replace(/[^\w-]+/g, '_')}.json`, serializeStore([sn]), 'application/json') }, 'Export'),
+      h('button', { class: 'danger', onclick: async () => {
+        if (!SNAP.confirmDel) { SNAP.confirmDel = true; renderSnapshots(); return; }
+        SNAP.list = SNAP.list.filter(x => x.id !== sn.id); SNAP.sel = null; SNAP.confirmDel = false; SNAP.msg = '';
+        await persistSnapshots(); renderSnapshots();
+      } }, SNAP.confirmDel ? 'Click again to delete' : 'Delete')),
+    h('h3', { text: 'Measurements' }),
+    h('div', { class: 'small', text: metricLine(sn) }),
+    res.rotation && res.rotation.missing.length ? h('div', { class: 'note', text: 'No data near: ' + res.rotation.missing.join(', ') + '.' }) : null,
+    notchTable(sn),
+    h('h3', { style: 'margin-top:12px', text: 'Settings' }),
+    sn.settings.length ? sn.settings.map(x => h('div', { class: 'small' }, h('b', { text: x.name + ': ' }), x.value === '' ? 'not set' : x.value, h('span', { class: 'mut', text: `  (${x.combo}, range ${x.range})` }))) : h('div', { class: 'mut small', text: 'No settings recorded.' }));
+}
+function renderSnapEditor(box) {
+  const d = SNAP.draft;
+  const busy = () => SNAP.busy;
+  const name = h('input', { type: 'text', placeholder: 'e.g. After recalibration, 0.31' }); name.value = d.name;
+  name.addEventListener('input', () => { d.name = name.value; });
+  const desc = h('textarea', { placeholder: 'What changed, how it plays, which shell/springs...' }); desc.value = d.description;
+  desc.addEventListener('input', () => { d.description = desc.value; });
+  const starRow = h('span', {});
+  const drawStars = () => { starRow.textContent = ''; for (let i = 1; i <= 5; i++) starRow.append(h('button', { class: 'starbtn', title: i + ' of 5', onclick: () => { d.rating = d.rating === i ? 0 : i; drawStars(); } }, i <= d.rating ? '★' : '☆')); };
+  drawStars();
+  const stickSel = h('select', {}, h('option', { value: 'left', text: 'Control stick' }), h('option', { value: 'c', text: 'C-stick' }));
+  stickSel.value = d.stick;
+  stickSel.addEventListener('change', () => { d.stick = stickSel.value; d.measurements = {}; renderSnapshots(); });
+  if (!d.isNew) stickSel.disabled = true;
+
+  const nagrid = h('div', { class: 'nagrid' }, DIRS.map((nm, k) => {
+    const cb = h('input', { type: 'checkbox' }); cb.checked = d.naNotches.has(k);
+    cb.addEventListener('change', () => { if (cb.checked) d.naNotches.add(k); else d.naNotches.delete(k); });
+    return h('label', {}, cb, nm);
+  }));
+
+  const rows = TEST_ORDER.map(mode => {
+    const key = BLOCK_OF[mode], have = d.measurements[key];
+    const status = h('span', { class: 'mut small', text: have ? 'recorded' : 'not recorded' });
+    const btn = h('button', { text: have ? 'Re-record' : 'Record', onclick: async () => {
+      if (busy()) return;
+      SNAP.busy = true; btn.disabled = true;
+      try {
+        const r = await recordTest(mode, d.stick, l => { status.textContent = 'Recording ' + l.toFixed(1) + ' s'; });
+        const blk = compactBlock(mode, r.results);
+        if (blk) { d.measurements[key] = blk; SNAP.msg = ''; } else SNAP.msg = `Not enough data from the ${TESTS[mode].name} test. Try again.`;
+      } catch (e) { SNAP.msg = e.message; }
+      SNAP.busy = false; renderSnapshots();
+    } });
+    const clear = have ? h('button', { text: 'Clear', onclick: () => { if (busy()) return; delete d.measurements[key]; renderSnapshots(); } }) : null;
+    return h('div', { class: 'testrow' }, h('span', { class: 'nm', text: TESTS[mode].name }), btn, clear, status,
+      h('div', { class: 'mut small', style: 'flex-basis:100%', text: TESTS[mode].text }));
+  });
+
+  const setRows = d.settings.map(st => {
+    const inp = h('input', { type: 'text' }); inp.value = st.value;
+    inp.addEventListener('input', () => { st.value = inp.value; });
+    return h('div', { class: 'setrow' }, h('span', { text: st.name }), inp, h('span', { class: 's', text: `${st.combo} · range ${st.range}` }));
+  });
+
+  const save = h('button', { class: 'primary', text: d.isNew ? 'Save snapshot' : 'Save changes', onclick: async () => {
+    if (busy()) return;
+    const snap = createSnapshot({ ...d, naNotches: [...d.naNotches], origin: d.origin || originNow() });
+    const bad = validateSnapshot(snap);
+    if (bad.length) { SNAP.msg = 'Cannot save: ' + bad.join(', '); renderSnapshots(); return; }
+    const i = SNAP.list.findIndex(x => x.id === snap.id);
+    if (i >= 0) SNAP.list[i] = snap; else SNAP.list.unshift(snap);
+    SNAP.sel = snap.id; SNAP.draft = null; SNAP.msg = '';
+    if (!(await persistSnapshots())) SNAP.draft = d;
+    renderSnapshots();
+  } });
+  put(box,
+    h('h2', { text: d.isNew ? 'New snapshot' : 'Edit snapshot' }),
+    h('label', { class: 'field' }, h('span', { text: 'Name' }), name),
+    h('label', { class: 'field' }, h('span', { text: 'Description' }), desc),
+    h('div', { class: 'field' }, h('span', { class: 'mut small', text: 'Rating (how it plays)' }), starRow),
+    h('label', { class: 'field' }, h('span', { text: 'Stick' }), stickSel),
+    h('h3', { text: 'Notches this shell does not have' }),
+    h('div', { class: 'mut small', text: 'Tick any direction with no physical notch. It is left out of the measurements and of later drift checks.' }),
+    nagrid,
+    h('h3', { style: 'margin-top:14px', text: 'Measurements' }),
+    h('div', { class: 'mut small', text: 'Connect the adapter, then record each test for the stick above. Every test is optional; record the ones you care about.' }),
+    rows,
+    h('h3', { style: 'margin-top:14px', text: `Settings (${S.fw.label})` }),
+    h('div', { class: 'mut small', text: 'The controller cannot report its settings to this app, so enter what you set. Defaults are filled in.' }),
+    setRows.length ? setRows : h('div', { class: 'mut small', text: 'This firmware profile has no numeric settings.' }),
+    h('div', { class: 'row', style: 'margin-top:14px' }, save, h('button', { text: 'Cancel', onclick: () => { if (busy()) return; SNAP.draft = null; SNAP.msg = ''; renderSnapshots(); } })));
+}
+const originNow = () => (S.source && S.source.origin ? S.source.origin() : null);
+
+$('#btnSnapNew').addEventListener('click', () => { if (SNAP.busy) return; SNAP.draft = draftFrom(null); SNAP.sel = null; SNAP.msg = ''; renderSnapshots(); });
+$('#btnSnapExport').addEventListener('click', () => { if (SNAP.list.length) download('stick-coach-snapshots.json', serializeStore(SNAP.list), 'application/json'); });
+$('#btnSnapImport').addEventListener('click', () => $('#fileSnapImport').click());
+$('#fileSnapImport').addEventListener('change', async e => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  const r = mergeImported(SNAP.list, await f.text());
+  SNAP.list = r.list;
+  SNAP.msg = `Imported ${r.added} snapshot(s)` + (r.skipped ? `, ${r.skipped} already present` : '') + '.' + (r.errors.length ? ' ' + r.errors.join(' ') : '');
+  await persistSnapshots(); e.target.value = ''; renderSnapshots();
+});
+snapStore.load().then(r => { SNAP.list = r.snapshots; if (r.errors.length) SNAP.msg = r.errors.join(' '); renderSnapshots(); })
+  .catch(e => { SNAP.msg = 'Could not load snapshots: ' + (e && e.message ? e.message : e); renderSnapshots(); });
+
 /* ================= tabs / init ================= */
 function showPage(name) {
   S.page = name;
@@ -594,6 +756,6 @@ function showPage(name) {
 }
 $$('#tabs button').forEach(b => b.addEventListener('click', () => showPage(b.dataset.tab)));
 
-loadProfiles(); renderFwSelect(); renderProcList(); renderRef(); renderRunner(); renderHistory();
+loadProfiles(); renderFwSelect(); renderProcList(); renderRef(); renderRunner(); renderHistory(); renderSnapshots();
 if (!store.get('firstRunDone', false)) openFirstRun();
 requestAnimationFrame(frame);
