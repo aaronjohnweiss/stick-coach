@@ -110,10 +110,10 @@ async function disconnect() {
   const src = S.source; S.source = null;
   $('#demoOpts').hidden = true;
   if (src) await src.stop();
-  $('#btnDisc').disabled = true; $('#portChips').textContent = '';
+  $('#btnDisc').disabled = true; $('#btnRezero').disabled = true; $('#portChips').textContent = '';
   setStatus('Not connected. See the Help tab for adapter driver setup.');
 }
-function connected(src, msg, lvl) { S.source = src; $('#btnDisc').disabled = false; setStatus(msg, lvl); }
+function connected(src, msg, lvl) { S.source = src; $('#btnDisc').disabled = false; $('#btnRezero').disabled = !src.rezero; setStatus(msg, lvl); }
 async function doConnectAdapter() {
   await disconnect();
   try { connected(await connectAdapter(handlers), 'Adapter connected. Move a stick.', 'ok'); }
@@ -129,6 +129,7 @@ $('#btnAdapter').addEventListener('click', doConnectAdapter);
 $('#btnPad').addEventListener('click', async () => { await disconnect(); connected(connectPad(handlers), 'Browser gamepad mode: approximate values at ~60 Hz, no button reading. Press a button if nothing shows.', 'warn'); });
 $('#btnDemo').addEventListener('click', doConnectDemo);
 $('#btnDisc').addEventListener('click', disconnect);
+$('#btnRezero').addEventListener('click', () => { if (S.source && S.source.rezero) { S.source.rezero(); setStatus('Origin re-read from the current stick position (leave both sticks at rest).', 'ok'); } });
 $('#simSnap').addEventListener('change', e => { if (S.source && S.source.setSnap) S.source.setSnap(e.target.checked); });
 
 function bindPointer(cvId, isC) {

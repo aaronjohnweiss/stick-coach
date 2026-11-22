@@ -26,30 +26,59 @@ const originOf = raw => (raw === 127 || raw === 128 ? raw : 128);
 export function makeFeeder(h) {
   let tick = 0;
   const origins = [null, null, null, null];
-  return ports => {
+  let rezero = false;
+  const feed = ports => {
     if ((tick++ % 60) === 0) h.onPorts(ports);
     ports.forEach((q, i) => {
       if (!q.connected) origins[i] = null;
       else if (!origins[i]) origins[i] = { lx: originOf(q.lx), ly: originOf(q.ly), cx: originOf(q.cx), cy: originOf(q.cy) };
     });
-    const i = h.getPort(), p = ports[i], o = origins[i];
+    const i = h.getPort(), p = ports[i];
+    if (rezero && p && p.connected) { // re-read the selected port's origin from the current (resting) stick position
+      const near = (raw, old) => (Math.abs(raw - 128) <= 4 ? raw : old);
+      const old = origins[i];
+      origins[i] = { lx: near(p.lx, old.lx), ly: near(p.ly, old.ly), cx: near(p.cx, old.cx), cy: near(p.cy, old.cy) };
+      rezero = false;
+    }
+    const o = origins[i];
     if (p && p.connected) h.onSample({ x: p.lx - o.lx, y: p.ly - o.ly, cx: p.cx - o.cx, cy: p.cy - o.cy, l: p.l, r: p.r, b1: p.b1, b2: p.b2 });
   };
+  feed.rezero = () => { rezero = true; };
+  return feed;
 }
 
 // Desktop app: the Rust side reads the adapter over USB and emits 'adapter-sample' events (array of 4 raw ports).
 async function connectAdapterTauri(h, tauri) {
-  const feed = makeFeeder(h);
-  const src = { type: 'adapter', stopped: false, hasButtons: true, unlisten: [] };
+  let feed = makeFeeder(h);
+  const src = { type: 'adapter', stopped: false, hasButtons: true, unlisten: [], retry: null, rezero: () => feed.rezero() };
+  const errText = e => (typeof e === 'string' ? e : e.message);
+  // After an unplug, keep trying to restart the reader until the adapter comes back or the user disconnects.
+  const reconnect = () => {
+    if (src.stopped || src.retry) return;
+    src.retry = setInterval(async () => {
+      try {
+        await tauri.core.invoke('adapter_start');
+      } catch (e) { return; } // not back yet (or busy); keep waiting
+      clearInterval(src.retry); src.retry = null;
+      if (src.stopped) { try { await tauri.core.invoke('adapter_stop'); } catch (e) { /* ignore */ } return; }
+      feed = makeFeeder(h); // new origin read for the replugged adapter
+      h.onStatus('Adapter reconnected.', 'ok');
+    }, 1500);
+  };
   src.unlisten.push(await tauri.event.listen('adapter-sample', e => { if (!src.stopped) feed(e.payload); }));
-  src.unlisten.push(await tauri.event.listen('adapter-error', e => { if (!src.stopped) h.onStatus('Adapter disconnected: ' + e.payload, 'bad'); }));
+  src.unlisten.push(await tauri.event.listen('adapter-error', e => {
+    if (src.stopped) return;
+    h.onStatus('Adapter disconnected: ' + e.payload + '. Waiting for it to come back...', 'warn');
+    reconnect();
+  }));
   src.stop = async () => {
     src.stopped = true;
+    if (src.retry) { clearInterval(src.retry); src.retry = null; }
     src.unlisten.forEach(u => u());
     try { await tauri.core.invoke('adapter_stop'); } catch (e) { /* already stopped */ }
   };
   try { await tauri.core.invoke('adapter_start'); }
-  catch (e) { await src.stop(); throw new Error(typeof e === 'string' ? e : e.message); }
+  catch (e) { await src.stop(); throw new Error(errText(e)); }
   return src;
 }
 
@@ -70,6 +99,7 @@ export async function connectAdapter(h) {
   const src = { type: 'adapter', stopped: false, hasButtons: true };
   src.stop = async () => { src.stopped = true; try { await dev.close(); } catch (e) { /* already closed */ } };
   const feed = makeFeeder(h);
+  src.rezero = () => feed.rezero();
   (async () => {
     while (!src.stopped) {
       try {

@@ -57,6 +57,41 @@ test('stick offsets are measured from each port\'s origin (127 on OEM/Mayflash a
   assert.deepEqual([out[0].cx, out[1].cx], [0, 0]);
 });
 
+test('re-zero re-reads the origin from a resting stick, ignores a stick that is not at rest', async () => {
+  const { makeFeeder } = await import('../src/core/sources.js');
+  const out = [];
+  const feed = makeFeeder({ onPorts() { }, onSample: s => out.push(s), getPort: () => 0 });
+  const at = (lx, cy) => [port({ connected: true, lx, ly: 128, cx: 128, cy }), port(), port(), port()];
+  feed(at(128, 128)); // origin 128
+  feed(at(130, 128)); assert.equal(out.at(-1).x, 2);
+  feed.rezero(); feed(at(130, 128)); assert.equal(out.at(-1).x, 0); // origin is now 130
+  feed.rezero(); feed(at(200, 128)); assert.equal(out.at(-1).x, 70); // held far off-centre: origin stays 130
+});
+
+test('adapter reader restarts by itself after an unplug and stops cleanly', async () => {
+  const listeners = {}, calls = [];
+  let fail = true;
+  globalThis.__TAURI__ = {
+    core: { invoke: async cmd => { calls.push(cmd); if (cmd === 'adapter_start' && calls.length > 1 && fail) throw 'not found'; } },
+    event: { listen: async (name, fn) => { listeners[name] = fn; return () => { delete listeners[name]; }; } }
+  };
+  try {
+    const statuses = [];
+    const src = await connectAdapter({ onSample() { }, onPorts() { }, onStatus: (m, l) => statuses.push([m, l]), getPort: () => 0 });
+    listeners['adapter-error']({ payload: 'No such device' });
+    assert.match(statuses[0][0], /Waiting for it to come back/);
+    await new Promise(r => setTimeout(r, 3200)); // two failed retries (1.5 s apart)
+    assert.ok(calls.filter(c => c === 'adapter_start').length >= 3);
+    fail = false;
+    await new Promise(r => setTimeout(r, 1700));
+    assert.match(statuses.at(-1)[0], /reconnected/);
+    const n = calls.length;
+    await src.stop();
+    await new Promise(r => setTimeout(r, 1700));
+    assert.deepEqual(calls.slice(n), ['adapter_stop']); // no further restarts after stop
+  } finally { delete globalThis.__TAURI__; }
+});
+
 test('connectAdapter surfaces a Rust start error and cleans up', async () => {
   globalThis.__TAURI__ = {
     core: { invoke: async cmd => { if (cmd === 'adapter_start') throw 'adapter not found'; } },

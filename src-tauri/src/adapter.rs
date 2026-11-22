@@ -46,6 +46,32 @@ pub fn parse_packet(buf: &[u8]) -> Option<[Port; 4]> {
     Some([port(0), port(1), port(2), port(3)])
 }
 
+/// Name of another local process that has the adapter's device node open (Linux only; best effort).
+#[cfg(target_os = "linux")]
+fn holder_of(bus: u8, addr: u8) -> Option<String> {
+    let node = std::fs::canonicalize(format!("/dev/bus/usb/{bus:03}/{addr:03}")).ok()?;
+    let me = std::process::id().to_string();
+    for entry in std::fs::read_dir("/proc").ok()?.flatten() {
+        let pid = entry.file_name().to_string_lossy().to_string();
+        if pid == me || !pid.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        let Ok(fds) = std::fs::read_dir(entry.path().join("fd")) else { continue };
+        for fd in fds.flatten() {
+            if std::fs::read_link(fd.path()).map_or(false, |l| l == node) {
+                let name = std::fs::read_to_string(entry.path().join("comm")).unwrap_or_default();
+                return Some(format!("{} (PID {pid})", name.trim()));
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn holder_of(_bus: u8, _addr: u8) -> Option<String> {
+    None
+}
+
 struct Running {
     stop: std::sync::Arc<AtomicBool>,
     handle: JoinHandle<()>,
@@ -57,8 +83,11 @@ pub struct Adapter(Mutex<Option<Running>>);
 impl Adapter {
     pub fn start(&self, app: AppHandle) -> Result<(), String> {
         let mut slot = self.0.lock().map_err(|e| e.to_string())?;
-        if slot.is_some() {
+        if slot.as_ref().map_or(false, |r| !r.handle.is_finished()) {
             return Err("Adapter already started".into());
+        }
+        if let Some(done) = slot.take() {
+            let _ = done.handle.join(); // reader exited after an unplug
         }
         // Open on this thread so errors reach the caller.
         let ctx = Context::new().map_err(|e| e.to_string())?;
@@ -85,7 +114,13 @@ impl Adapter {
             }
         }
         let (ep_in, ep_out) = ep_in.zip(ep_out).ok_or("Adapter endpoints not found")?;
-        handle.claim_interface(iface_num).map_err(|e| format!("Could not claim adapter (another program using it?): {e}"))?;
+        if let Err(e) = handle.claim_interface(iface_num) {
+            let dev = handle.device();
+            return Err(match holder_of(dev.bus_number(), dev.address()) {
+                Some(who) => format!("The adapter is in use by {who}. Close it and try again."),
+                None => format!("Could not claim adapter (another program using it?): {e}"),
+            });
+        }
         handle
             .write_interrupt(ep_out, &[0x13], Duration::from_millis(1000))
             .map_err(|e| e.to_string())?;
